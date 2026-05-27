@@ -12,8 +12,8 @@
 `GET /share.php?doc={slug-or-id}` -> fetch document by slug or numeric ID -> show form
 `POST /share.php?doc={slug-or-id}` -> validate email -> `random_token()` -> INSERT into `shares` -> `audit_log('create', 'share', ...)` -> display share URL
 
-**Recipient views a document:**
-`GET /view.php?token={32-char-hex}` -> JOIN shares + documents on token -> check publish_at -> show document, "not yet available", or 404
+**Recipient views a shared document:**
+`GET /doc/{slug}?a={token}` -> router.php sets `$_GET['doc']` -> view.php -> JOIN shares + documents on slug AND token -> check publish_at -> show document with recipient info, or 404 if slug/token mismatch
 
 **Staff edits publish schedule:**
 `GET /edit.php?doc={slug-or-id}` -> fetch document -> show current publish_at in form
@@ -27,8 +27,10 @@ index.php -> redirect -> admin.php (search via ?q=)
                            +-- "Create share" -> share.php?doc={slug}
                            +-- "Edit schedule" -> edit.php?doc={slug}
                            
-share.php -> generates -> view.php?token={token}
+share.php -> generates -> /doc/{slug}?a={token}
                             |
+                            +-- router.php -> view.php
+                            +-- slug identifies doc, token authorizes access
                             +-- publish_at check -> document or "not yet available"
 ```
 
@@ -42,7 +44,13 @@ This is intentionally separate from any human-readable document ID. Readable IDs
 
 ## Startup sequence
 
-`docker compose up` runs: `php seed.php && php -S 0.0.0.0:8000 -t public/`
+`docker compose up` runs: `php seed.php && php -S 0.0.0.0:8000 -t public/ public/router.php`
+
+## URL routing
+
+`public/router.php` is the front controller for PHP's built-in server. It intercepts `/doc/{identifier}` requests, sets `$_GET['doc']`, and requires `view.php`. All other URLs fall through to normal file serving (`return false`).
+
+`view.php` requires both a slug (in the path) and an auth token (`?a=`). The slug identifies the document, the token proves authorization. Both must match or the request returns 404.
 
 `seed.php` does:
 1. Delete `db.sqlite` if it exists

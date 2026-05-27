@@ -3,23 +3,41 @@
 require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/layout.php';
 
-$token = $_GET['token'] ?? '';
+$docParam = $_GET['doc'] ?? '';
+$authToken = $_GET['a'] ?? '';
+$doc = null;
+$recipientEmail = null;
 
-$stmt = db()->prepare('
-    SELECT d.*, s.recipient_email
-    FROM shares s
-    JOIN documents d ON d.id = s.document_id
-    WHERE s.token = ?
-');
-$stmt->execute([$token]);
-$doc = $stmt->fetch();
+if ($docParam !== '' && $authToken !== '') {
+    if (ctype_digit($docParam)) {
+        $stmt = db()->prepare('
+            SELECT d.*, s.recipient_email
+            FROM shares s
+            JOIN documents d ON d.id = s.document_id
+            WHERE d.id = ? AND s.token = ?
+        ');
+        $stmt->execute([(int) $docParam, $authToken]);
+    } else {
+        $stmt = db()->prepare('
+            SELECT d.*, s.recipient_email
+            FROM shares s
+            JOIN documents d ON d.id = s.document_id
+            WHERE d.slug = ? AND s.token = ?
+        ');
+        $stmt->execute([$docParam, $authToken]);
+    }
+    $doc = $stmt->fetch();
+    if ($doc) {
+        $recipientEmail = $doc['recipient_email'];
+    }
+}
 
 if (!$doc) {
     http_response_code(404);
     render_header('Not found');
     ?>
     <div class="centered-message">
-        <h1>Share link not found</h1>
+        <h1>Document not found</h1>
         <p>The link you used is invalid or has been removed.</p>
     </div>
     <?php
@@ -43,7 +61,12 @@ render_header($doc['title']);
 ?>
 
 <h1 class="page-title"><?= h($doc['title']) ?></h1>
-<p class="meta">Shared with <?= h($doc['recipient_email']) ?></p>
+<?php if (!empty($doc['slug'])): ?>
+    <p class="meta"><?= h($doc['slug']) ?></p>
+<?php endif ?>
+<?php if ($recipientEmail !== null): ?>
+    <p class="meta">Shared with <?= h($recipientEmail) ?></p>
+<?php endif ?>
 
 <pre class="doc-body"><?= h($doc['body']) ?></pre>
 

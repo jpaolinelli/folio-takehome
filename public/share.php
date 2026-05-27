@@ -26,6 +26,17 @@ if (!$doc) {
     exit;
 }
 
+if (empty($doc['slug'])) {
+    $slug = generate_slug($doc['title']);
+    $stmt = db()->prepare('UPDATE documents SET slug = ? WHERE id = ?');
+    $stmt->execute([$slug, $doc['id']]);
+    audit_log('update_slug', 'document', (int) $doc['id'], [
+        'slug' => $slug,
+        'previous_slug' => null,
+    ]);
+    $doc['slug'] = $slug;
+}
+
 $error = null;
 $created_token = null;
 
@@ -64,7 +75,7 @@ render_header('Share · ' . $doc['title'], $staff);
 <?php if ($created_token): ?>
     <div class="banner banner-success">
         Share link ready:
-        <code>http://<?= h($_SERVER['HTTP_HOST']) ?>/view.php?token=<?= h($created_token) ?></code>
+        <code>http://<?= h($_SERVER['HTTP_HOST']) ?>/doc/<?= h($doc['slug']) ?>?a=<?= h($created_token) ?></code>
     </div>
 <?php endif ?>
 

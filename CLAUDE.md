@@ -28,9 +28,10 @@
 
 ```
 public/            Web root (PHP built-in server document root)
+  router.php       Front controller: routes /doc/{slug-or-token} to view.php
   admin.php        Staff dashboard: create docs, list docs, search
   share.php        Generate share link for a document
-  view.php         Recipient-facing document view (token-gated)
+  view.php         Recipient-facing document view (slug or token)
   edit.php         Edit document publish schedule
   index.php        Redirects to admin.php
   assets/style.css Full CSS design system

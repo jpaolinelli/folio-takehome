@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'slug' => $slug,
         ]);
 
-        header('Location: /admin.php?created=' . $docId);
+        header('Location: /admin.php?created=' . urlencode($slug));
         exit;
     }
 }
@@ -42,10 +42,10 @@ if ($q !== '') {
         SELECT d.*, s.name AS creator_name
         FROM documents d
         JOIN staff s ON s.id = d.created_by
-        WHERE d.title LIKE ?
+        WHERE d.title LIKE ? OR d.id = ? OR d.slug LIKE ?
         ORDER BY d.created_at DESC
     ');
-    $stmt->execute(['%' . $q . '%']);
+    $stmt->execute(['%' . $q . '%', $q, '%' . $q . '%']);
     $docs = $stmt->fetchAll();
 } else {
     $docs = db()->query('
@@ -63,7 +63,7 @@ render_header('Admin', $staff);
 <p class="page-subtitle">Create documents and generate share links for recipients.</p>
 
 <?php if (!empty($_GET['created'])): ?>
-    <div class="banner banner-success">Document #<?= (int) $_GET['created'] ?> created.</div>
+    <div class="banner banner-success">Document <?= h($_GET['created']) ?> created.</div>
 <?php endif ?>
 
 <?php if (!empty($_GET['updated'])): ?>
@@ -112,6 +112,7 @@ render_header('Admin', $staff);
                 <tr>
                     <th>ID</th>
                     <th>Title</th>
+                    <th>Slug</th>
                     <th>Creator</th>
                     <th>Created</th>
                     <th>Status</th>
@@ -121,8 +122,9 @@ render_header('Admin', $staff);
             <tbody>
                 <?php foreach ($docs as $d): ?>
                     <tr>
-                        <td class="id"><?= h($d['slug'] ?? '#' . $d['id']) ?></td>
+                        <td class="id"><?= h($d['id']) ?></td>
                         <td><?= h($d['title']) ?></td>
+                        <td><?= h($d['slug'] ?? '') ?></td>
                         <td><?= h($d['creator_name']) ?></td>
                         <td><?= h($d['created_at']) ?></td>
                         <td>

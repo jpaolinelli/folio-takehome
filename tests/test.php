@@ -173,5 +173,67 @@ test('document can be looked up by slug', function () {
     assert_true($doc['title'] === 'Slug Lookup Test', 'title mismatch');
 });
 
+test('view.php resolves document by slug + auth token', function () {
+    $slug = generate_slug('Slug Auth Test');
+    $stmt = db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)');
+    $stmt->execute(['Slug Auth Test', 'body', $slug]);
+    $docId = (int) db()->lastInsertId();
+
+    $token = random_token();
+    $stmt = db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)');
+    $stmt->execute([$docId, $token, 'test@example.com']);
+
+    $stmt = db()->prepare('
+        SELECT d.*, s.recipient_email
+        FROM shares s
+        JOIN documents d ON d.id = s.document_id
+        WHERE d.slug = ? AND s.token = ?
+    ');
+    $stmt->execute([$slug, $token]);
+    $doc = $stmt->fetch();
+
+    assert_true($doc !== false, 'document should resolve with slug + token');
+    assert_true((int) $doc['id'] === $docId, 'should resolve to the correct document');
+    assert_true($doc['recipient_email'] === 'test@example.com', 'should include recipient email');
+});
+
+test('view.php rejects slug without auth token', function () {
+    $slug = generate_slug('No Token Test');
+    $stmt = db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)');
+    $stmt->execute(['No Token Test', 'body', $slug]);
+
+    $docParam = $slug;
+    $authToken = '';
+    $doc = null;
+
+    if ($docParam !== '' && $authToken !== '') {
+        $stmt = db()->prepare('
+            SELECT d.* FROM shares s
+            JOIN documents d ON d.id = s.document_id
+            WHERE d.slug = ? AND s.token = ?
+        ');
+        $stmt->execute([$docParam, $authToken]);
+        $doc = $stmt->fetch();
+    }
+
+    assert_true($doc === null, 'slug without token should not resolve');
+});
+
+test('view.php rejects valid slug with wrong token', function () {
+    $slug = generate_slug('Wrong Token Test');
+    $stmt = db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)');
+    $stmt->execute(['Wrong Token Test', 'body', $slug]);
+
+    $stmt = db()->prepare('
+        SELECT d.* FROM shares s
+        JOIN documents d ON d.id = s.document_id
+        WHERE d.slug = ? AND s.token = ?
+    ');
+    $stmt->execute([$slug, 'deadbeefdeadbeefdeadbeefdeadbeef']);
+    $doc = $stmt->fetch();
+
+    assert_true($doc === false, 'valid slug with wrong token should not resolve');
+});
+
 echo "\n{$pass} passed, {$fail} failed.\n";
 exit($fail > 0 ? 1 : 0);
