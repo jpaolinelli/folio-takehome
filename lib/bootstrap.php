@@ -1,6 +1,6 @@
 <?php
 
-date_default_timezone_set('America/Chicago');
+date_default_timezone_set('UTC');
 
 function db(): PDO {
     static $pdo = null;
@@ -45,4 +45,42 @@ function random_token(int $bytes = 16): string {
 
 function h(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+}
+
+function parse_publish_at(string $input): ?string {
+    $input = trim($input);
+    if ($input === '') {
+        return null;
+    }
+    $dt = DateTime::createFromFormat('Y-m-d\TH:i', $input)
+        ?: DateTime::createFromFormat('Y-m-d\TH:i:s', $input);
+    if (!$dt) {
+        return null;
+    }
+    return $dt->format('Y-m-d H:i:s');
+}
+
+function find_document(string $param): array|false {
+    if ($param === '') {
+        return false;
+    }
+    if (ctype_digit($param)) {
+        $stmt = db()->prepare('SELECT * FROM documents WHERE id = ?');
+        $stmt->execute([(int) $param]);
+    } else {
+        $stmt = db()->prepare('SELECT * FROM documents WHERE slug = ?');
+        $stmt->execute([$param]);
+    }
+    return $stmt->fetch();
+}
+
+function iso8601(string $dbDate): string {
+    return str_replace(' ', 'T', $dbDate) . 'Z';
+}
+
+function generate_slug(string $title): string {
+    $base = preg_replace('/[^a-z0-9]+/', '-', strtolower(trim($title)));
+    $base = trim($base, '-');
+    $suffix = strtolower(substr(bin2hex(random_bytes(2)), 0, 4));
+    return $base !== '' ? $base . '-' . $suffix : $suffix;
 }
