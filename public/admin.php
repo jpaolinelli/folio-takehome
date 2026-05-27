@@ -16,16 +16,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $publishAt = trim($_POST['publish_at'] ?? '');
         $publishAt = $publishAt !== '' ? str_replace('T', ' ', $publishAt) . ':00' : null;
 
+        $slug = generate_slug($title);
         $stmt = db()->prepare('
-            INSERT INTO documents (title, body, created_by, publish_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO documents (title, body, created_by, publish_at, slug)
+            VALUES (?, ?, ?, ?, ?)
         ');
-        $stmt->execute([$title, $body, $staff['id'], $publishAt]);
+        $stmt->execute([$title, $body, $staff['id'], $publishAt, $slug]);
         $docId = (int) db()->lastInsertId();
 
         audit_log('create', 'document', $docId, [
             'title' => $title,
             'publish_at' => $publishAt,
+            'slug' => $slug,
         ]);
 
         header('Location: /admin.php?created=' . $docId);
@@ -119,7 +121,7 @@ render_header('Admin', $staff);
             <tbody>
                 <?php foreach ($docs as $d): ?>
                     <tr>
-                        <td class="id">#<?= (int) $d['id'] ?></td>
+                        <td class="id"><?= h($d['slug'] ?? '#' . $d['id']) ?></td>
                         <td><?= h($d['title']) ?></td>
                         <td><?= h($d['creator_name']) ?></td>
                         <td><?= h($d['created_at']) ?></td>
@@ -131,8 +133,8 @@ render_header('Admin', $staff);
                             <?php endif ?>
                         </td>
                         <td>
-                            <a href="/share.php?doc=<?= (int) $d['id'] ?>" class="btn-link">Create share</a>
-                            | <a href="/edit.php?doc=<?= (int) $d['id'] ?>" class="btn-link">Edit schedule</a>
+                            <a href="/share.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="btn-link">Create share</a>
+                            | <a href="/edit.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="btn-link">Edit schedule</a>
                         </td>
                     </tr>
                 <?php endforeach ?>

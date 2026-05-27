@@ -137,5 +137,41 @@ test('search with no matches returns empty', function () {
     assert_true(count($rows) === 0, 'expected 0 matches');
 });
 
+// -- Slug tests --
+
+test('generate_slug produces slugified-title-with-4-char-suffix', function () {
+    $slug = generate_slug('Welcome Packet');
+    assert_true(preg_match('/^welcome-packet-[a-z0-9]{4}$/', $slug) === 1,
+        'slug format mismatch: ' . $slug);
+});
+
+test('generate_slug produces different slugs for the same title', function () {
+    $a = generate_slug('Test Document');
+    $b = generate_slug('Test Document');
+    assert_true($a !== $b, 'expected different slugs, got: ' . $a);
+});
+
+test('seeded document has a slug', function () {
+    $stmt = db()->prepare('SELECT slug FROM documents WHERE id = 1');
+    $stmt->execute();
+    $doc = $stmt->fetch();
+    assert_true($doc !== false, 'seeded document should exist');
+    assert_true($doc['slug'] !== null, 'seeded document should have a slug');
+    assert_true(str_starts_with($doc['slug'], 'welcome-packet-'), 'slug should start with welcome-packet-');
+});
+
+test('document can be looked up by slug', function () {
+    $slug = generate_slug('Slug Lookup Test');
+    $stmt = db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)');
+    $stmt->execute(['Slug Lookup Test', 'body', $slug]);
+
+    $stmt = db()->prepare('SELECT title FROM documents WHERE slug = ?');
+    $stmt->execute([$slug]);
+    $doc = $stmt->fetch();
+
+    assert_true($doc !== false, 'document should be found by slug');
+    assert_true($doc['title'] === 'Slug Lookup Test', 'title mismatch');
+});
+
 echo "\n{$pass} passed, {$fail} failed.\n";
 exit($fail > 0 ? 1 : 0);
