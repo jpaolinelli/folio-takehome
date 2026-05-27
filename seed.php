@@ -38,4 +38,4 @@ $stmt->execute([$docId, $token, 'recipient@example.com']);
 
 echo "Seeded db.sqlite.\n";
 echo "Admin:        http://localhost:8000/admin.php\n";
-echo "Sample share: http://localhost:8000/view.php?token={$token}\n";
+echo "Sample share: http://localhost:8000/doc/{$slug}?a={$token}\n";

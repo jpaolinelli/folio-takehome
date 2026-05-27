@@ -30,6 +30,14 @@ function render_header(string $title, ?array $staff = null): void {
 function render_footer(): void {
     ?>
 </main>
+<script>
+document.querySelectorAll('time[datetime]').forEach(function(el) {
+    var d = new Date(el.getAttribute('datetime'));
+    if (!isNaN(d)) {
+        el.textContent = d.toLocaleString();
+    }
+});
+</script>
 </body>
 </html>
     <?php

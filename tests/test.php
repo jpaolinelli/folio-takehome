@@ -316,25 +316,47 @@ test('generate_slug handles empty and whitespace-only titles', function () {
         'whitespace-only title slug should be just the suffix: ' . $slug2);
 });
 
-test('deleting a document cascades to its shares', function () {
+test('deleting a document removes its shares and is audit logged', function () {
     $slug = generate_slug('Delete Cascade');
     db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Delete Cascade', 'body', $slug]);
     $docId = (int) db()->lastInsertId();
 
-    $token = random_token();
-    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $token, 'cascade@test.com']);
-    $shareId = (int) db()->lastInsertId();
+    $token1 = random_token();
+    $token2 = random_token();
+    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $token1, 'a@test.com']);
+    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $token2, 'b@test.com']);
 
-    db()->prepare('DELETE FROM shares WHERE document_id = ?')->execute([$docId]);
-    db()->prepare('DELETE FROM documents WHERE id = ?')->execute([$docId]);
+    $stmt = db()->prepare('SELECT COUNT(*) FROM shares WHERE document_id = ?');
+    $stmt->execute([$docId]);
+    assert_true((int) $stmt->fetchColumn() === 2, 'should have 2 shares before delete');
 
-    $stmt = db()->prepare('SELECT * FROM shares WHERE id = ?');
-    $stmt->execute([$shareId]);
-    assert_true($stmt->fetch() === false, 'share should be deleted when document is deleted');
+    $stmt = db()->prepare('DELETE FROM shares WHERE document_id = ?');
+    $stmt->execute([$docId]);
+    $sharesDeleted = $stmt->rowCount();
+
+    $stmt = db()->prepare('DELETE FROM documents WHERE id = ?');
+    $stmt->execute([$docId]);
+
+    audit_log('delete', 'document', $docId, [
+        'title' => 'Delete Cascade',
+        'slug' => $slug,
+        'shares_deleted' => $sharesDeleted,
+    ]);
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM shares WHERE document_id = ?');
+    $stmt->execute([$docId]);
+    assert_true((int) $stmt->fetchColumn() === 0, 'all shares should be removed');
 
     $stmt = db()->prepare('SELECT * FROM documents WHERE id = ?');
     $stmt->execute([$docId]);
     assert_true($stmt->fetch() === false, 'document should be deleted');
+
+    $stmt = db()->prepare('SELECT * FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ?');
+    $stmt->execute(['document', $docId, 'delete']);
+    $log = $stmt->fetch();
+    assert_true($log !== false, 'delete should be audit logged');
+    $details = json_decode($log['details'], true);
+    assert_true($details['shares_deleted'] === 2, 'audit should record shares_deleted count');
 });
 
 test('audit_log records correct staff_id and entity details', function () {
@@ -395,6 +417,44 @@ test('view resolution by numeric ID + token works', function () {
     assert_true($doc !== false, 'should resolve document by numeric ID + token');
     assert_true($doc['title'] === 'ID Resolve Test', 'title should match');
     assert_true($doc['recipient_email'] === 'id@test.com', 'recipient should match');
+});
+
+// -- Helper function tests --
+
+test('parse_publish_at handles standard datetime-local format', function () {
+    $result = parse_publish_at('2026-05-27T14:00');
+    assert_true($result === '2026-05-27 14:00:00', 'should parse YYYY-MM-DDTHH:MM: ' . var_export($result, true));
+});
+
+test('parse_publish_at handles format with seconds', function () {
+    $result = parse_publish_at('2026-05-27T14:00:30');
+    assert_true($result === '2026-05-27 14:00:30', 'should parse YYYY-MM-DDTHH:MM:SS: ' . var_export($result, true));
+});
+
+test('parse_publish_at returns null for empty or invalid input', function () {
+    assert_true(parse_publish_at('') === null, 'empty string should return null');
+    assert_true(parse_publish_at('   ') === null, 'whitespace should return null');
+    assert_true(parse_publish_at('not-a-date') === null, 'invalid string should return null');
+});
+
+test('find_document returns false for empty param', function () {
+    assert_true(find_document('') === false, 'empty string should return false');
+});
+
+test('find_document finds by numeric ID', function () {
+    $doc = find_document('1');
+    assert_true($doc !== false, 'should find seeded document by ID');
+    assert_true($doc['title'] === 'Welcome Packet', 'title should match');
+});
+
+test('find_document finds by slug', function () {
+    $stmt = db()->prepare('SELECT slug FROM documents WHERE id = 1');
+    $stmt->execute();
+    $slug = $stmt->fetch()['slug'];
+
+    $doc = find_document($slug);
+    assert_true($doc !== false, 'should find seeded document by slug');
+    assert_true((int) $doc['id'] === 1, 'ID should match');
 });
 
 echo "\n{$pass} passed, {$fail} failed.\n";

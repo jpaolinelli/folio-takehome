@@ -44,13 +44,13 @@ if ($q !== '') {
 
 $totalPages = max(1, (int) ceil($total / $perPage));
 
-function paginate_url(array $overrides): string {
+$paginate_url = function (array $overrides): string {
     $params = array_merge($_GET, $overrides);
-    if (($params['page'] ?? 1) <= 1) unset($params['page']);
-    if (($params['per_page'] ?? 10) == 10) unset($params['per_page']);
+    if ((int) ($params['page'] ?? 1) <= 1) unset($params['page']);
+    if ((int) ($params['per_page'] ?? 10) === 10) unset($params['per_page']);
     if (($params['q'] ?? '') === '') unset($params['q']);
     return '/admin.php' . ($params ? '?' . http_build_query($params) : '');
-}
+};
 
 render_header('Admin', $staff);
 ?>
@@ -80,7 +80,7 @@ render_header('Admin', $staff);
         <div class="search-wrap">
             <input type="text" name="q" value="<?= h($q) ?>" placeholder="Search by title, ID, or slug...">
             <?php if ($q !== ''): ?>
-                <a href="<?= h(paginate_url(['q' => ''])) ?>" class="search-clear"><i class="fa-solid fa-xmark"></i></a>
+                <a href="<?= h($paginate_url(['q' => ''])) ?>" class="search-clear"><i class="fa-solid fa-xmark"></i></a>
             <?php endif ?>
         </div>
         <?php if ($perPage !== 10): ?>
@@ -112,10 +112,10 @@ render_header('Admin', $staff);
                         <td><?= h($d['title']) ?></td>
                         <td><?= h($d['slug'] ?? '') ?></td>
                         <td><?= h($d['creator_name']) ?></td>
-                        <td><?= h($d['created_at']) ?></td>
+                        <td><time datetime="<?= h($d['created_at']) ?>Z"><?= h($d['created_at']) ?></time></td>
                         <td>
                             <?php if ($d['publish_at'] !== null && new DateTime($d['publish_at']) > new DateTime()): ?>
-                                Scheduled: <?= h($d['publish_at']) ?>
+                                Scheduled: <time datetime="<?= h($d['publish_at']) ?>Z"><?= h($d['publish_at']) ?></time>
                             <?php else: ?>
                                 Published
                             <?php endif ?>
@@ -140,17 +140,17 @@ render_header('Admin', $staff);
                         <?php if ($size === $perPage): ?>
                             <span class="pagination-size-active"><?= $size ?></span>
                         <?php else: ?>
-                            <a href="<?= h(paginate_url(['per_page' => $size, 'page' => 1])) ?>"><?= $size ?></a>
+                            <a href="<?= h($paginate_url(['per_page' => $size, 'page' => 1])) ?>"><?= $size ?></a>
                         <?php endif ?>
                     <?php endforeach ?>
                     per page
                 </span>
                 <?php if ($page > 1): ?>
-                    <a href="<?= h(paginate_url(['page' => $page - 1])) ?>" class="btn-link"><i class="fa-solid fa-chevron-left"></i> Prev</a>
+                    <a href="<?= h($paginate_url(['page' => $page - 1])) ?>" class="btn-link"><i class="fa-solid fa-chevron-left"></i> Prev</a>
                 <?php endif ?>
                 <span class="pagination-page">Page <?= $page ?> of <?= $totalPages ?></span>
                 <?php if ($page < $totalPages): ?>
-                    <a href="<?= h(paginate_url(['page' => $page + 1])) ?>" class="btn-link">Next <i class="fa-solid fa-chevron-right"></i></a>
+                    <a href="<?= h($paginate_url(['page' => $page + 1])) ?>" class="btn-link">Next <i class="fa-solid fa-chevron-right"></i></a>
                 <?php endif ?>
             </div>
         </div>

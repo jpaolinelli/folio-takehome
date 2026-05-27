@@ -4,16 +4,7 @@ require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/layout.php';
 
 $staff = current_staff();
-$docParam = trim($_GET['doc'] ?? '');
-
-if (ctype_digit($docParam)) {
-    $stmt = db()->prepare('SELECT * FROM documents WHERE id = ?');
-    $stmt->execute([(int) $docParam]);
-} else {
-    $stmt = db()->prepare('SELECT * FROM documents WHERE slug = ?');
-    $stmt->execute([$docParam]);
-}
-$doc = $stmt->fetch();
+$doc = find_document(trim($_GET['doc'] ?? ''));
 
 if (!$doc) {
     http_response_code(404);
@@ -31,13 +22,13 @@ $error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim($_POST['title'] ?? '');
     $body = trim($_POST['body'] ?? '');
-    $publishAt = trim($_POST['publish_at'] ?? '');
-
     if ($title === '' || $body === '') {
         $error = 'Title and body are required.';
     } else {
-        $newPublishAt = $publishAt !== '' ? str_replace('T', ' ', $publishAt) . ':00' : null;
+        $newPublishAt = parse_publish_at($_POST['publish_at'] ?? '');
 
+        // Slug is intentionally NOT regenerated on title change.
+        // Existing share links contain the slug, so changing it would break them.
         $changes = [];
         if ($title !== $doc['title']) {
             $changes['title'] = $title;
@@ -92,7 +83,7 @@ render_header('Edit · ' . $doc['title'], $staff);
             <textarea id="body" name="body" required><?= h($doc['body']) ?></textarea>
         </div>
         <div class="form-field">
-            <label for="publish_at">Publish at (leave empty to publish immediately)</label>
+            <label for="publish_at">Publish at, UTC (leave empty to publish immediately)</label>
             <input type="datetime-local" id="publish_at" name="publish_at" value="<?= h($publishAtValue) ?>">
         </div>
         <button type="submit" class="btn">Save changes</button>

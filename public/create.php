@@ -13,8 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($title === '' || $body === '') {
         $error = 'Title and body are required.';
     } else {
-        $publishAt = trim($_POST['publish_at'] ?? '');
-        $publishAt = $publishAt !== '' ? str_replace('T', ' ', $publishAt) . ':00' : null;
+        $publishAt = parse_publish_at($_POST['publish_at'] ?? '');
 
         $slug = generate_slug($title);
         $stmt = db()->prepare('
@@ -58,7 +57,7 @@ render_header('New document', $staff);
             <textarea id="body" name="body" required></textarea>
         </div>
         <div class="form-field">
-            <label for="publish_at">Publish at (optional)</label>
+            <label for="publish_at">Publish at, UTC (optional)</label>
             <input type="datetime-local" id="publish_at" name="publish_at">
         </div>
         <button type="submit" class="btn">Create document</button>
