@@ -51,5 +51,5 @@ function generate_slug(string $title): string {
     $base = preg_replace('/[^a-z0-9]+/', '-', strtolower(trim($title)));
     $base = trim($base, '-');
     $suffix = strtolower(substr(bin2hex(random_bytes(2)), 0, 4));
-    return $base . '-' . $suffix;
+    return $base !== '' ? $base . '-' . $suffix : $suffix;
 }

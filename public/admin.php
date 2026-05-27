@@ -4,103 +4,89 @@ require __DIR__ . '/../lib/bootstrap.php';
 require __DIR__ . '/../lib/layout.php';
 
 $staff = current_staff();
-$error = null;
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $title = trim($_POST['title'] ?? '');
-    $body = trim($_POST['body'] ?? '');
-
-    if ($title === '' || $body === '') {
-        $error = 'Title and body are required.';
-    } else {
-        $publishAt = trim($_POST['publish_at'] ?? '');
-        $publishAt = $publishAt !== '' ? str_replace('T', ' ', $publishAt) . ':00' : null;
-
-        $slug = generate_slug($title);
-        $stmt = db()->prepare('
-            INSERT INTO documents (title, body, created_by, publish_at, slug)
-            VALUES (?, ?, ?, ?, ?)
-        ');
-        $stmt->execute([$title, $body, $staff['id'], $publishAt, $slug]);
-        $docId = (int) db()->lastInsertId();
-
-        audit_log('create', 'document', $docId, [
-            'title' => $title,
-            'publish_at' => $publishAt,
-            'slug' => $slug,
-        ]);
-
-        header('Location: /admin.php?created=' . urlencode($slug));
-        exit;
-    }
-}
-
 $q = trim($_GET['q'] ?? '');
+$perPageRaw = isset($_GET['per_page']) ? (int) $_GET['per_page'] : 10;
+$perPage = in_array($perPageRaw, [10, 50, 100], true) ? $perPageRaw : 10;
+$page = max(1, (int) ($_GET['page'] ?? 1));
+$offset = ($page - 1) * $perPage;
 
 if ($q !== '') {
+    $countStmt = db()->prepare('
+        SELECT COUNT(*) FROM documents d
+        WHERE d.title LIKE ? OR d.id = ? OR d.slug LIKE ?
+    ');
+    $countStmt->execute(['%' . $q . '%', $q, '%' . $q . '%']);
+    $total = (int) $countStmt->fetchColumn();
+
     $stmt = db()->prepare('
         SELECT d.*, s.name AS creator_name
         FROM documents d
         JOIN staff s ON s.id = d.created_by
         WHERE d.title LIKE ? OR d.id = ? OR d.slug LIKE ?
         ORDER BY d.created_at DESC
+        LIMIT ? OFFSET ?
     ');
-    $stmt->execute(['%' . $q . '%', $q, '%' . $q . '%']);
+    $stmt->execute(['%' . $q . '%', $q, '%' . $q . '%', $perPage, $offset]);
     $docs = $stmt->fetchAll();
 } else {
-    $docs = db()->query('
+    $total = (int) db()->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+
+    $stmt = db()->prepare('
         SELECT d.*, s.name AS creator_name
         FROM documents d
         JOIN staff s ON s.id = d.created_by
         ORDER BY d.created_at DESC
-    ')->fetchAll();
+        LIMIT ? OFFSET ?
+    ');
+    $stmt->execute([$perPage, $offset]);
+    $docs = $stmt->fetchAll();
+}
+
+$totalPages = max(1, (int) ceil($total / $perPage));
+
+function paginate_url(array $overrides): string {
+    $params = array_merge($_GET, $overrides);
+    if (($params['page'] ?? 1) <= 1) unset($params['page']);
+    if (($params['per_page'] ?? 10) == 10) unset($params['per_page']);
+    if (($params['q'] ?? '') === '') unset($params['q']);
+    return '/admin.php' . ($params ? '?' . http_build_query($params) : '');
 }
 
 render_header('Admin', $staff);
 ?>
 
-<h1 class="page-title">Admin</h1>
-<p class="page-subtitle">Create documents and generate share links for recipients.</p>
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Documents</h1>
+        <p class="page-subtitle">Manage documents and generate share links for recipients.</p>
+    </div>
+    <a href="/create.php" class="btn"><i class="fa-solid fa-plus"></i> Create document</a>
+</div>
 
 <?php if (!empty($_GET['created'])): ?>
     <div class="banner banner-success">Document <?= h($_GET['created']) ?> created.</div>
 <?php endif ?>
 
 <?php if (!empty($_GET['updated'])): ?>
-    <div class="banner banner-success">Schedule updated for document #<?= (int) $_GET['updated'] ?>.</div>
+    <div class="banner banner-success">Document #<?= (int) $_GET['updated'] ?> updated.</div>
 <?php endif ?>
 
-<?php if ($error): ?>
-    <div class="banner banner-error"><?= h($error) ?></div>
+<?php if (!empty($_GET['deleted'])): ?>
+    <div class="banner banner-success">Document #<?= (int) $_GET['deleted'] ?> deleted.</div>
 <?php endif ?>
 
 <section class="card">
-    <h2 class="card-title">New document</h2>
-    <form method="post">
-        <div class="form-field">
-            <label for="title">Title</label>
-            <input type="text" id="title" name="title" required>
-        </div>
-        <div class="form-field">
-            <label for="body">Body</label>
-            <textarea id="body" name="body" required></textarea>
-        </div>
-        <div class="form-field">
-            <label for="publish_at">Publish at (optional)</label>
-            <input type="datetime-local" id="publish_at" name="publish_at">
-        </div>
-        <button type="submit" class="btn">Create document</button>
-    </form>
-</section>
-
-<section class="card">
-    <h2 class="card-title">Documents</h2>
     <form method="get" style="display:flex;gap:.5rem;margin-bottom:1rem;">
-        <input type="text" name="q" value="<?= h($q) ?>" placeholder="Search by title...">
-        <button type="submit" class="btn">Search</button>
-        <?php if ($q !== ''): ?>
-            <a href="/admin.php" class="btn-link">Clear</a>
+        <div class="search-wrap">
+            <input type="text" name="q" value="<?= h($q) ?>" placeholder="Search by title, ID, or slug...">
+            <?php if ($q !== ''): ?>
+                <a href="<?= h(paginate_url(['q' => ''])) ?>" class="search-clear"><i class="fa-solid fa-xmark"></i></a>
+            <?php endif ?>
+        </div>
+        <?php if ($perPage !== 10): ?>
+            <input type="hidden" name="per_page" value="<?= $perPage ?>">
         <?php endif ?>
+        <button type="submit" class="btn">Search</button>
     </form>
     <?php if (empty($docs) && $q !== ''): ?>
         <p class="empty">No documents matching "<?= h($q) ?>".</p>
@@ -134,14 +120,40 @@ render_header('Admin', $staff);
                                 Published
                             <?php endif ?>
                         </td>
-                        <td>
-                            <a href="/share.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="btn-link">Create share</a>
-                            | <a href="/edit.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="btn-link">Edit schedule</a>
+                        <td class="actions">
+                            <a href="/edit.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="action-icon" data-tooltip="Edit document"><i class="fa-solid fa-pen-to-square"></i></a>
+                            <a href="/share.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="action-icon" data-tooltip="Create share link"><i class="fa-solid fa-share-nodes"></i></a>
+                            <a href="/delete.php?doc=<?= h($d['slug'] ?? $d['id']) ?>" class="action-icon action-icon-danger" data-tooltip="Delete document"><i class="fa-solid fa-trash"></i></a>
                         </td>
                     </tr>
                 <?php endforeach ?>
             </tbody>
         </table>
+
+        <div class="pagination">
+            <div class="pagination-info">
+                Showing <?= $offset + 1 ?>-<?= min($offset + $perPage, $total) ?> of <?= $total ?>
+            </div>
+            <div class="pagination-controls">
+                <span class="pagination-size">
+                    <?php foreach ([10, 50, 100] as $size): ?>
+                        <?php if ($size === $perPage): ?>
+                            <span class="pagination-size-active"><?= $size ?></span>
+                        <?php else: ?>
+                            <a href="<?= h(paginate_url(['per_page' => $size, 'page' => 1])) ?>"><?= $size ?></a>
+                        <?php endif ?>
+                    <?php endforeach ?>
+                    per page
+                </span>
+                <?php if ($page > 1): ?>
+                    <a href="<?= h(paginate_url(['page' => $page - 1])) ?>" class="btn-link"><i class="fa-solid fa-chevron-left"></i> Prev</a>
+                <?php endif ?>
+                <span class="pagination-page">Page <?= $page ?> of <?= $totalPages ?></span>
+                <?php if ($page < $totalPages): ?>
+                    <a href="<?= h(paginate_url(['page' => $page + 1])) ?>" class="btn-link">Next <i class="fa-solid fa-chevron-right"></i></a>
+                <?php endif ?>
+            </div>
+        </div>
     <?php endif ?>
 </section>
 

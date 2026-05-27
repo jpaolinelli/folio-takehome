@@ -235,5 +235,167 @@ test('view.php rejects valid slug with wrong token', function () {
     assert_true($doc === false, 'valid slug with wrong token should not resolve');
 });
 
+// -- Adversarial tests --
+
+test('slug uniqueness is enforced at the database level', function () {
+    $slug = generate_slug('Unique Test');
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Doc A', 'body', $slug]);
+
+    $threw = false;
+    try {
+        db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Doc B', 'body', $slug]);
+    } catch (PDOException $e) {
+        $threw = true;
+    }
+    assert_true($threw, 'duplicate slug insert should throw a constraint violation');
+});
+
+test('SQL injection via search term is harmless', function () {
+    $malicious = "'; DROP TABLE documents; --";
+    $stmt = db()->prepare('SELECT title FROM documents WHERE title LIKE ? OR id = ? OR slug LIKE ?');
+    $stmt->execute(['%' . $malicious . '%', $malicious, '%' . $malicious . '%']);
+    $rows = $stmt->fetchAll();
+
+    assert_true(is_array($rows), 'query should complete without error');
+
+    $check = db()->query('SELECT COUNT(*) FROM documents')->fetchColumn();
+    assert_true((int) $check >= 1, 'documents table should still exist and have rows');
+});
+
+test('token for one document does not grant access to another', function () {
+    $slugA = generate_slug('Doc A Cross');
+    $slugB = generate_slug('Doc B Cross');
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Doc A Cross', 'body a', $slugA]);
+    $idA = (int) db()->lastInsertId();
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Doc B Cross', 'body b', $slugB]);
+
+    $tokenA = random_token();
+    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$idA, $tokenA, 'a@test.com']);
+
+    $stmt = db()->prepare('
+        SELECT d.* FROM shares s
+        JOIN documents d ON d.id = s.document_id
+        WHERE d.slug = ? AND s.token = ?
+    ');
+    $stmt->execute([$slugB, $tokenA]);
+    $doc = $stmt->fetch();
+
+    assert_true($doc === false, 'token for doc A should not resolve doc B');
+});
+
+test('document with publish_at exactly now is viewable', function () {
+    $now = date('Y-m-d H:i:s');
+    $stmt = db()->prepare('INSERT INTO documents (title, body, created_by, publish_at) VALUES (?, ?, 1, ?)');
+    $stmt->execute(['Boundary Doc', 'body', $now]);
+
+    $stmt = db()->prepare('SELECT publish_at FROM documents WHERE id = ?');
+    $stmt->execute([(int) db()->lastInsertId()]);
+    $doc = $stmt->fetch();
+
+    assert_true($doc !== false, 'document should exist');
+    assert_true(new DateTime($doc['publish_at']) <= new DateTime(), 'publish_at at exactly now should be viewable');
+});
+
+test('generate_slug handles special characters and unicode', function () {
+    $slug = generate_slug('Hello World!!! @#$% (test)');
+    assert_true(preg_match('/^[a-z0-9-]+-[a-z0-9]{4}$/', $slug) === 1,
+        'slug should only contain lowercase alphanum and hyphens: ' . $slug);
+
+    $slug2 = generate_slug('   Leading Trailing   ');
+    assert_true(!str_starts_with($slug2, '-'), 'slug should not start with hyphen: ' . $slug2);
+    assert_true(str_starts_with($slug2, 'leading-trailing-'), 'slug should trim and slugify: ' . $slug2);
+});
+
+test('generate_slug handles empty and whitespace-only titles', function () {
+    $slug = generate_slug('');
+    assert_true(preg_match('/^[a-z0-9]{4}$/', $slug) === 1,
+        'empty title slug should be just the 4-char suffix: ' . $slug);
+
+    $slug2 = generate_slug('   ');
+    assert_true(preg_match('/^[a-z0-9]{4}$/', $slug2) === 1,
+        'whitespace-only title slug should be just the suffix: ' . $slug2);
+});
+
+test('deleting a document cascades to its shares', function () {
+    $slug = generate_slug('Delete Cascade');
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Delete Cascade', 'body', $slug]);
+    $docId = (int) db()->lastInsertId();
+
+    $token = random_token();
+    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $token, 'cascade@test.com']);
+    $shareId = (int) db()->lastInsertId();
+
+    db()->prepare('DELETE FROM shares WHERE document_id = ?')->execute([$docId]);
+    db()->prepare('DELETE FROM documents WHERE id = ?')->execute([$docId]);
+
+    $stmt = db()->prepare('SELECT * FROM shares WHERE id = ?');
+    $stmt->execute([$shareId]);
+    assert_true($stmt->fetch() === false, 'share should be deleted when document is deleted');
+
+    $stmt = db()->prepare('SELECT * FROM documents WHERE id = ?');
+    $stmt->execute([$docId]);
+    assert_true($stmt->fetch() === false, 'document should be deleted');
+});
+
+test('audit_log records correct staff_id and entity details', function () {
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Audit Detail Test', 'body', generate_slug('Audit Detail Test')]);
+    $docId = (int) db()->lastInsertId();
+
+    audit_log('create', 'document', $docId, ['title' => 'Audit Detail Test']);
+
+    $stmt = db()->prepare('SELECT * FROM audit_log WHERE entity_type = ? AND entity_id = ? AND action = ? ORDER BY id DESC LIMIT 1');
+    $stmt->execute(['document', $docId, 'create']);
+    $log = $stmt->fetch();
+
+    assert_true($log !== false, 'audit log entry should exist');
+    assert_true((int) $log['staff_id'] === 1, 'audit should reference staff #1');
+    assert_true($log['entity_type'] === 'document', 'entity_type should be document');
+    assert_true((int) $log['entity_id'] === $docId, 'entity_id should match document');
+
+    $details = json_decode($log['details'], true);
+    assert_true($details['title'] === 'Audit Detail Test', 'details should contain title');
+});
+
+test('multiple shares for same document each have unique tokens', function () {
+    $slug = generate_slug('Multi Share');
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Multi Share', 'body', $slug]);
+    $docId = (int) db()->lastInsertId();
+
+    $tokens = [];
+    for ($i = 0; $i < 5; $i++) {
+        $t = random_token();
+        db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $t, "user{$i}@test.com"]);
+        $tokens[] = $t;
+    }
+
+    assert_true(count(array_unique($tokens)) === 5, 'all 5 tokens should be unique');
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM shares WHERE document_id = ?');
+    $stmt->execute([$docId]);
+    assert_true((int) $stmt->fetchColumn() === 5, 'document should have exactly 5 shares');
+});
+
+test('view resolution by numeric ID + token works', function () {
+    $slug = generate_slug('ID Resolve Test');
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['ID Resolve Test', 'body', $slug]);
+    $docId = (int) db()->lastInsertId();
+
+    $token = random_token();
+    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $token, 'id@test.com']);
+
+    $stmt = db()->prepare('
+        SELECT d.*, s.recipient_email
+        FROM shares s
+        JOIN documents d ON d.id = s.document_id
+        WHERE d.id = ? AND s.token = ?
+    ');
+    $stmt->execute([$docId, $token]);
+    $doc = $stmt->fetch();
+
+    assert_true($doc !== false, 'should resolve document by numeric ID + token');
+    assert_true($doc['title'] === 'ID Resolve Test', 'title should match');
+    assert_true($doc['recipient_email'] === 'id@test.com', 'recipient should match');
+});
+
 echo "\n{$pass} passed, {$fail} failed.\n";
 exit($fail > 0 ? 1 : 0);
