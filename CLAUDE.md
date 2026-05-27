@@ -35,7 +35,7 @@ public/            Web root (PHP built-in server document root)
   index.php        Redirects to admin.php
   assets/style.css Full CSS design system
 lib/
-  bootstrap.php    db(), current_staff(), audit_log(), random_token(), h()
+  bootstrap.php    db(), current_staff(), audit_log(), random_token(), generate_slug(), h()
   layout.php       render_header(), render_footer()
   migrate.php      Migration runner (run_migrations())
 migrations/        Numbered SQL migration files

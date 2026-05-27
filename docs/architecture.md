@@ -3,28 +3,33 @@
 ## Request flows
 
 **Staff creates a document:**
-`POST /admin.php` -> validate title + body -> INSERT into `documents` -> `audit_log('create', 'document', ...)` -> redirect to `/admin.php?created={id}`
+`POST /admin.php` -> validate title + body -> `generate_slug()` -> INSERT into `documents` (with slug, optional publish_at) -> `audit_log('create', 'document', ...)` -> redirect to `/admin.php?created={id}`
+
+**Staff searches for a document:**
+`GET /admin.php?q={term}` -> `WHERE title LIKE '%term%'` (case-insensitive) -> filtered document list
 
 **Staff generates a share link:**
-`GET /share.php?doc={id}` -> fetch document -> show form
-`POST /share.php?doc={id}` -> validate email -> `random_token()` -> INSERT into `shares` -> `audit_log('create', 'share', ...)` -> display share URL
+`GET /share.php?doc={slug-or-id}` -> fetch document by slug or numeric ID -> show form
+`POST /share.php?doc={slug-or-id}` -> validate email -> `random_token()` -> INSERT into `shares` -> `audit_log('create', 'share', ...)` -> display share URL
 
 **Recipient views a document:**
-`GET /view.php?token={32-char-hex}` -> JOIN shares + documents on token -> show document or 404
+`GET /view.php?token={32-char-hex}` -> JOIN shares + documents on token -> check publish_at -> show document, "not yet available", or 404
 
 **Staff edits publish schedule:**
-`GET /edit.php?doc={id}` -> fetch document -> show current publish_at in form
-`POST /edit.php?doc={id}` -> validate -> UPDATE documents SET publish_at -> `audit_log('update_schedule', 'document', ...)` -> redirect to `/admin.php?updated={id}`
+`GET /edit.php?doc={slug-or-id}` -> fetch document -> show current publish_at in form
+`POST /edit.php?doc={slug-or-id}` -> validate -> UPDATE documents SET publish_at -> `audit_log('update_schedule', 'document', ...)` -> redirect to `/admin.php?updated={id}`
 
 ## How pages connect
 
 ```
-index.php -> redirect -> admin.php
+index.php -> redirect -> admin.php (search via ?q=)
                            |
-                           +-- "Create share" -> share.php?doc={id}
-                           +-- "Edit schedule" -> edit.php?doc={id}
+                           +-- "Create share" -> share.php?doc={slug}
+                           +-- "Edit schedule" -> edit.php?doc={slug}
                            
 share.php -> generates -> view.php?token={token}
+                            |
+                            +-- publish_at check -> document or "not yet available"
 ```
 
 ## Share-token model

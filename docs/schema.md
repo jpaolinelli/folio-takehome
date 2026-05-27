@@ -23,9 +23,12 @@ Only one staff member exists (id=1). `current_staff()` hardcodes this.
 | body | TEXT | NOT NULL |
 | created_by | INTEGER | NOT NULL, FK -> staff(id) |
 | publish_at | TEXT | DEFAULT NULL (added by migration 001) |
+| slug | TEXT | UNIQUE, indexed (added by migration 002) |
 | created_at | TEXT | NOT NULL DEFAULT datetime('now') |
 
 `publish_at` = NULL means "published immediately." A future datetime means the document is not yet visible to recipients.
+
+`slug` is a human-readable ID (e.g., `welcome-packet-7a3f`). Generated from the slugified title + 4-char random hex suffix. Used in admin URLs for share.php and edit.php. Complements (does not replace) share tokens.
 
 ## shares
 
