@@ -106,5 +106,36 @@ test('schedule update is audit logged with old and new values', function () {
     assert_true($details['previous_publish_at'] === null, 'audit should contain previous publish_at');
 });
 
+// -- Search tests --
+
+test('search finds documents by partial title match', function () {
+    db()->prepare('INSERT INTO documents (title, body, created_by) VALUES (?, ?, 1)')->execute(['Onboarding Guide', 'body']);
+    db()->prepare('INSERT INTO documents (title, body, created_by) VALUES (?, ?, 1)')->execute(['Policy Manual', 'body']);
+
+    $stmt = db()->prepare('SELECT title FROM documents WHERE title LIKE ? ORDER BY title');
+    $stmt->execute(['%board%']);
+    $rows = $stmt->fetchAll();
+
+    assert_true(count($rows) === 1, 'expected 1 match, got ' . count($rows));
+    assert_true($rows[0]['title'] === 'Onboarding Guide', 'expected Onboarding Guide');
+});
+
+test('search is case-insensitive', function () {
+    $stmt = db()->prepare('SELECT title FROM documents WHERE title LIKE ?');
+    $stmt->execute(['%welcome%']);
+    $rows = $stmt->fetchAll();
+
+    assert_true(count($rows) >= 1, 'expected at least 1 match for lowercase "welcome"');
+    assert_true($rows[0]['title'] === 'Welcome Packet', 'expected Welcome Packet');
+});
+
+test('search with no matches returns empty', function () {
+    $stmt = db()->prepare('SELECT title FROM documents WHERE title LIKE ?');
+    $stmt->execute(['%zzzznonexistent%']);
+    $rows = $stmt->fetchAll();
+
+    assert_true(count($rows) === 0, 'expected 0 matches');
+});
+
 echo "\n{$pass} passed, {$fail} failed.\n";
 exit($fail > 0 ? 1 : 0);
