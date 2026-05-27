@@ -13,24 +13,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($title === '' || $body === '') {
         $error = 'Title and body are required.';
     } else {
-        $publishAt = parse_publish_at($_POST['publish_at'] ?? '');
+        $rawPublishAt = trim($_POST['publish_at'] ?? '');
+        if ($rawPublishAt !== '' && parse_publish_at($rawPublishAt) === null) {
+            $error = 'Invalid publish date format.';
+        } else {
+            $publishAt = parse_publish_at($rawPublishAt);
 
-        $slug = generate_slug($title);
-        $stmt = db()->prepare('
-            INSERT INTO documents (title, body, created_by, publish_at, slug)
-            VALUES (?, ?, ?, ?, ?)
-        ');
-        $stmt->execute([$title, $body, $staff['id'], $publishAt, $slug]);
-        $docId = (int) db()->lastInsertId();
+            $maxRetries = 5;
+            $slug = null;
+            for ($i = 0; $i < $maxRetries; $i++) {
+                $slug = generate_slug($title);
+                try {
+                    $stmt = db()->prepare('
+                        INSERT INTO documents (title, body, created_by, publish_at, slug)
+                        VALUES (?, ?, ?, ?, ?)
+                    ');
+                    $stmt->execute([$title, $body, $staff['id'], $publishAt, $slug]);
+                    break;
+                } catch (PDOException $e) {
+                    if ($i === $maxRetries - 1 || strpos($e->getMessage(), 'UNIQUE') === false) {
+                        throw $e;
+                    }
+                }
+            }
+            $docId = (int) db()->lastInsertId();
 
-        audit_log('create', 'document', $docId, [
-            'title' => $title,
-            'publish_at' => $publishAt,
-            'slug' => $slug,
-        ]);
+            audit_log('create', 'document', $docId, [
+                'title' => $title,
+                'publish_at' => $publishAt,
+                'slug' => $slug,
+            ]);
 
-        header('Location: /admin.php?created=' . urlencode($slug));
-        exit;
+            header('Location: /admin.php?created=' . urlencode($slug));
+            exit;
+        }
     }
 }
 

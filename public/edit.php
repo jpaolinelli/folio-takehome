@@ -22,10 +22,16 @@ $error = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $title = trim($_POST['title'] ?? '');
     $body = trim($_POST['body'] ?? '');
+    $rawPublishAt = trim($_POST['publish_at'] ?? '');
+
     if ($title === '' || $body === '') {
         $error = 'Title and body are required.';
-    } else {
-        $newPublishAt = parse_publish_at($_POST['publish_at'] ?? '');
+    } elseif ($rawPublishAt !== '' && parse_publish_at($rawPublishAt) === null) {
+        $error = 'Invalid publish date format.';
+    }
+
+    if ($error === null) {
+        $newPublishAt = parse_publish_at($rawPublishAt);
 
         // Slug is intentionally NOT regenerated on title change.
         // Existing share links contain the slug, so changing it would break them.

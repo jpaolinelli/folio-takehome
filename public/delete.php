@@ -19,19 +19,28 @@ if (!$doc) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $docId = (int) $doc['id'];
+    $pdo = db();
 
-    $stmt = db()->prepare('DELETE FROM shares WHERE document_id = ?');
-    $stmt->execute([$docId]);
-    $sharesDeleted = $stmt->rowCount();
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare('DELETE FROM shares WHERE document_id = ?');
+        $stmt->execute([$docId]);
+        $sharesDeleted = $stmt->rowCount();
 
-    $stmt = db()->prepare('DELETE FROM documents WHERE id = ?');
-    $stmt->execute([$docId]);
+        $stmt = $pdo->prepare('DELETE FROM documents WHERE id = ?');
+        $stmt->execute([$docId]);
 
-    audit_log('delete', 'document', $docId, [
-        'title' => $doc['title'],
-        'slug' => $doc['slug'],
-        'shares_deleted' => $sharesDeleted,
-    ]);
+        audit_log('delete', 'document', $docId, [
+            'title' => $doc['title'],
+            'slug' => $doc['slug'],
+            'shares_deleted' => $sharesDeleted,
+        ]);
+
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
 
     header('Location: /admin.php?deleted=' . $docId);
     exit;
@@ -50,7 +59,7 @@ render_header('Delete · ' . $doc['title'], $staff);
         <tr><td><strong>ID</strong></td><td><?= h($doc['id']) ?></td></tr>
         <tr><td><strong>Title</strong></td><td><?= h($doc['title']) ?></td></tr>
         <tr><td><strong>Slug</strong></td><td><?= h($doc['slug'] ?? '') ?></td></tr>
-        <tr><td><strong>Created</strong></td><td><time datetime="<?= h($doc['created_at']) ?>Z"><?= h($doc['created_at']) ?></time></td></tr>
+        <tr><td><strong>Created</strong></td><td><time datetime="<?= h(iso8601($doc['created_at'])) ?>"><?= h($doc['created_at']) ?></time></td></tr>
     </table>
 </section>
 

@@ -11,22 +11,22 @@ $page = max(1, (int) ($_GET['page'] ?? 1));
 $offset = ($page - 1) * $perPage;
 
 if ($q !== '') {
-    $countStmt = db()->prepare('
-        SELECT COUNT(*) FROM documents d
-        WHERE d.title LIKE ? OR d.id = ? OR d.slug LIKE ?
-    ');
-    $countStmt->execute(['%' . $q . '%', $q, '%' . $q . '%']);
+    $searchWhere = 'WHERE d.title LIKE ? OR d.id = ? OR d.slug LIKE ?';
+    $searchParams = ['%' . $q . '%', $q, '%' . $q . '%'];
+
+    $countStmt = db()->prepare("SELECT COUNT(*) FROM documents d {$searchWhere}");
+    $countStmt->execute($searchParams);
     $total = (int) $countStmt->fetchColumn();
 
-    $stmt = db()->prepare('
+    $stmt = db()->prepare("
         SELECT d.*, s.name AS creator_name
         FROM documents d
         JOIN staff s ON s.id = d.created_by
-        WHERE d.title LIKE ? OR d.id = ? OR d.slug LIKE ?
+        {$searchWhere}
         ORDER BY d.created_at DESC
         LIMIT ? OFFSET ?
-    ');
-    $stmt->execute(['%' . $q . '%', $q, '%' . $q . '%', $perPage, $offset]);
+    ");
+    $stmt->execute(array_merge($searchParams, [$perPage, $offset]));
     $docs = $stmt->fetchAll();
 } else {
     $total = (int) db()->query('SELECT COUNT(*) FROM documents')->fetchColumn();
@@ -112,10 +112,10 @@ render_header('Admin', $staff);
                         <td><?= h($d['title']) ?></td>
                         <td><?= h($d['slug'] ?? '') ?></td>
                         <td><?= h($d['creator_name']) ?></td>
-                        <td><time datetime="<?= h($d['created_at']) ?>Z"><?= h($d['created_at']) ?></time></td>
+                        <td><time datetime="<?= h(iso8601($d['created_at'])) ?>"><?= h($d['created_at']) ?></time></td>
                         <td>
                             <?php if ($d['publish_at'] !== null && new DateTime($d['publish_at']) > new DateTime()): ?>
-                                Scheduled: <time datetime="<?= h($d['publish_at']) ?>Z"><?= h($d['publish_at']) ?></time>
+                                Scheduled: <time datetime="<?= h(iso8601($d['publish_at'])) ?>"><?= h($d['publish_at']) ?></time>
                             <?php else: ?>
                                 Published
                             <?php endif ?>

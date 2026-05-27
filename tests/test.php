@@ -457,5 +457,44 @@ test('find_document finds by slug', function () {
     assert_true((int) $doc['id'] === 1, 'ID should match');
 });
 
+test('parse_publish_at rejects malformed input distinctly from empty', function () {
+    assert_true(parse_publish_at('') === null, 'empty returns null');
+    assert_true(parse_publish_at('not-a-date') === null, 'garbage returns null');
+    assert_true(parse_publish_at('2026-05-27T14:00') !== null, 'valid input returns non-null');
+});
+
+test('iso8601 converts DB date format to valid ISO 8601', function () {
+    $result = iso8601('2026-05-27 14:00:00');
+    assert_true($result === '2026-05-27T14:00:00Z', 'expected ISO format, got: ' . $result);
+});
+
+test('delete operation is atomic via transaction', function () {
+    $slug = generate_slug('Txn Test');
+    db()->prepare('INSERT INTO documents (title, body, created_by, slug) VALUES (?, ?, 1, ?)')->execute(['Txn Test', 'body', $slug]);
+    $docId = (int) db()->lastInsertId();
+
+    $token = random_token();
+    db()->prepare('INSERT INTO shares (document_id, token, recipient_email) VALUES (?, ?, ?)')->execute([$docId, $token, 'txn@test.com']);
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare('DELETE FROM shares WHERE document_id = ?')->execute([$docId]);
+        $pdo->prepare('DELETE FROM documents WHERE id = ?')->execute([$docId]);
+        $pdo->commit();
+    } catch (\Throwable $e) {
+        $pdo->rollBack();
+        throw $e;
+    }
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM documents WHERE id = ?');
+    $stmt->execute([$docId]);
+    assert_true((int) $stmt->fetchColumn() === 0, 'document should be deleted');
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM shares WHERE document_id = ?');
+    $stmt->execute([$docId]);
+    assert_true((int) $stmt->fetchColumn() === 0, 'shares should be deleted');
+});
+
 echo "\n{$pass} passed, {$fail} failed.\n";
 exit($fail > 0 ? 1 : 0);

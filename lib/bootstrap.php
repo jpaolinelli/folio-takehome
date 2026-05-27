@@ -74,6 +74,10 @@ function find_document(string $param): array|false {
     return $stmt->fetch();
 }
 
+function iso8601(string $dbDate): string {
+    return str_replace(' ', 'T', $dbDate) . 'Z';
+}
+
 function generate_slug(string $title): string {
     $base = preg_replace('/[^a-z0-9]+/', '-', strtolower(trim($title)));
     $base = trim($base, '-');

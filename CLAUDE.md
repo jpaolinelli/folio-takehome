@@ -7,7 +7,7 @@
 - Never edit `schema.sql`. Schema changes go in numbered files under `migrations/` (e.g., `001_add_publish_at.sql`).
 - Run tests with `docker compose exec app php tests/test.php`.
 - All dates are stored and compared in UTC. PHP timezone is set to UTC in `bootstrap.php`. SQLite `datetime('now')` defaults are also UTC.
-- Display dates to users via `<time datetime="...Z">` elements. The JS in `render_footer()` converts these to the client's local timezone.
+- Display dates to users via `<time datetime="...">` elements. Use `iso8601()` to convert DB dates to valid ISO 8601 for the `datetime` attribute. The JS in `render_footer()` converts these to the client's local timezone.
 - Use PHP `DateTime` objects for all date comparisons, never raw string comparison.
 
 # Do not
@@ -38,7 +38,7 @@ public/            Web root (PHP built-in server document root)
   index.php        Redirects to admin.php
   assets/style.css Full CSS design system
 lib/
-  bootstrap.php    db(), current_staff(), audit_log(), random_token(), generate_slug(), parse_publish_at(), find_document(), h()
+  bootstrap.php    db(), current_staff(), audit_log(), random_token(), generate_slug(), parse_publish_at(), find_document(), iso8601(), h()
   layout.php       render_header(), render_footer()
   migrate.php      Migration runner (run_migrations())
 migrations/        Numbered SQL migration files
