@@ -27,6 +27,18 @@ if (!$doc) {
     exit;
 }
 
+if ($doc['publish_at'] !== null && new DateTime($doc['publish_at']) > new DateTime()) {
+    render_header('Not yet available');
+    ?>
+    <div class="centered-message">
+        <h1>This document is not yet available</h1>
+        <p>Please check back later.</p>
+    </div>
+    <?php
+    render_footer();
+    exit;
+}
+
 render_header($doc['title']);
 ?>
 

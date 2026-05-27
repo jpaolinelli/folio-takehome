@@ -13,14 +13,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($title === '' || $body === '') {
         $error = 'Title and body are required.';
     } else {
+        $publishAt = trim($_POST['publish_at'] ?? '');
+        $publishAt = $publishAt !== '' ? str_replace('T', ' ', $publishAt) . ':00' : null;
+
         $stmt = db()->prepare('
-            INSERT INTO documents (title, body, created_by)
-            VALUES (?, ?, ?)
+            INSERT INTO documents (title, body, created_by, publish_at)
+            VALUES (?, ?, ?, ?)
         ');
-        $stmt->execute([$title, $body, $staff['id']]);
+        $stmt->execute([$title, $body, $staff['id'], $publishAt]);
         $docId = (int) db()->lastInsertId();
 
-        audit_log('create', 'document', $docId, ['title' => $title]);
+        audit_log('create', 'document', $docId, [
+            'title' => $title,
+            'publish_at' => $publishAt,
+        ]);
 
         header('Location: /admin.php?created=' . $docId);
         exit;
@@ -44,6 +50,10 @@ render_header('Admin', $staff);
     <div class="banner banner-success">Document #<?= (int) $_GET['created'] ?> created.</div>
 <?php endif ?>
 
+<?php if (!empty($_GET['updated'])): ?>
+    <div class="banner banner-success">Schedule updated for document #<?= (int) $_GET['updated'] ?>.</div>
+<?php endif ?>
+
 <?php if ($error): ?>
     <div class="banner banner-error"><?= h($error) ?></div>
 <?php endif ?>
@@ -58,6 +68,10 @@ render_header('Admin', $staff);
         <div class="form-field">
             <label for="body">Body</label>
             <textarea id="body" name="body" required></textarea>
+        </div>
+        <div class="form-field">
+            <label for="publish_at">Publish at (optional)</label>
+            <input type="datetime-local" id="publish_at" name="publish_at">
         </div>
         <button type="submit" class="btn">Create document</button>
     </form>
@@ -75,6 +89,7 @@ render_header('Admin', $staff);
                     <th>Title</th>
                     <th>Creator</th>
                     <th>Created</th>
+                    <th>Status</th>
                     <th></th>
                 </tr>
             </thead>
@@ -85,7 +100,17 @@ render_header('Admin', $staff);
                         <td><?= h($d['title']) ?></td>
                         <td><?= h($d['creator_name']) ?></td>
                         <td><?= h($d['created_at']) ?></td>
-                        <td><a href="/share.php?doc=<?= (int) $d['id'] ?>" class="btn-link">Create share →</a></td>
+                        <td>
+                            <?php if ($d['publish_at'] !== null && new DateTime($d['publish_at']) > new DateTime()): ?>
+                                Scheduled: <?= h($d['publish_at']) ?>
+                            <?php else: ?>
+                                Published
+                            <?php endif ?>
+                        </td>
+                        <td>
+                            <a href="/share.php?doc=<?= (int) $d['id'] ?>" class="btn-link">Create share</a>
+                            | <a href="/edit.php?doc=<?= (int) $d['id'] ?>" class="btn-link">Edit schedule</a>
+                        </td>
                     </tr>
                 <?php endforeach ?>
             </tbody>
